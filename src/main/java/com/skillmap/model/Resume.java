@@ -30,7 +30,7 @@ public class Resume {
 
     private String s3Key;
 
-    private String extratedSkills;
+    private String extractedSkills;
 
     private Double matchScore;
 
