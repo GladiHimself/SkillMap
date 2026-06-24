@@ -10,9 +10,12 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.skillmap.dto.ResumeRequestDTO;
+import com.skillmap.dto.ResumeResponseDTO;
 import com.skillmap.model.Resume;
 import com.skillmap.service.ResumeService;
 
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
 
@@ -24,18 +27,18 @@ public class ResumeController {
     private final ResumeService resumeService;
 
     @GetMapping
-    public List<Resume> getAllResumes() {
+    public List<ResumeResponseDTO> getAllResumes() {
         return resumeService.getAllResumes();
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Resume> getResumeById(@PathVariable Long id) {
+    public ResponseEntity<ResumeResponseDTO> getResumeById(@PathVariable Long id) {
         return ResponseEntity.ok(resumeService.getResumeById(id));
     }
 
     @PostMapping
-    public ResponseEntity<Resume> createResume(@RequestBody Resume resume) {
-        return ResponseEntity.ok(resumeService.createResume(resume));
+    public ResponseEntity<ResumeResponseDTO> createResume(@Valid @RequestBody ResumeRequestDTO resumeRequest) {
+        return ResponseEntity.ok(resumeService.createResume(resumeRequest));
     }
 
 }

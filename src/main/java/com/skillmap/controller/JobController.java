@@ -11,9 +11,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.skillmap.model.Job;
+import com.skillmap.dto.JobRequestDTO;
+import com.skillmap.dto.JobResponseDTO;
 import com.skillmap.service.JobService;
 
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
 @RestController
@@ -24,18 +26,18 @@ public class JobController {
     private final JobService jobService;
 
     @GetMapping
-    public List<Job> getAllJobs() {
+    public List<JobResponseDTO> getAllJobs() {
         return jobService.getAllJobs();
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Job> getJobById(@PathVariable Long id) {
+    public ResponseEntity<JobResponseDTO> getJobById(@PathVariable Long id) {
         return ResponseEntity.ok(jobService.getJobById(id));
     }
 
     @PostMapping
-    public ResponseEntity<Job> createJob(@RequestBody Job job) {
-        return ResponseEntity.ok(jobService.createJob(job));
+    public ResponseEntity<JobResponseDTO> createJob(@Valid @RequestBody JobRequestDTO jobRequest) {
+        return ResponseEntity.ok(jobService.createJob(jobRequest));
     }
 
     @DeleteMapping("/{id}")
