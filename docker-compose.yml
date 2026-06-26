@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+
+  # PostgreSQL database
+  postgres:
+    image: postgres:16
+    container_name: skillmap-postgres
+    environment:
+      POSTGRES_DB: skillmapdb
+      POSTGRES_USER: skillmap
+      POSTGRES_PASSWORD: skillmap123
+    ports:
+      - "5432:5432"       # your Mac port : container port
+    volumes:
+      - skillmap-data:/var/lib/postgresql/data   # data persists here
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U skillmap -d skillmapdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  skillmap-data:    # named volume — survives container restarts
