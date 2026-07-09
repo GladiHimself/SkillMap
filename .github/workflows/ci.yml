@@ -1,0 +1,51 @@
+# Name appears in GitHub Actions tab
+name: SkillMap CI
+
+# WHEN to run this workflow
+on:
+  push:
+    branches: [ "**" ]     # every push to any branch
+  pull_request:
+    branches: [ main ]     # every PR targeting main
+
+# WHAT to run
+jobs:
+
+  # Job name — shows up in GitHub UI
+  build-and-test:
+
+    # WHERE to run — GitHub provides this Ubuntu machine for free
+    runs-on: ubuntu-latest
+
+    # Steps run in order, top to bottom
+    steps:
+
+      # Step 1: Get your code onto the runner machine
+      # Without this, the machine has no idea what your project is
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Install Java 21 on the runner machine
+      # Temurin is the open-source distribution of Java from Adoptium
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      # Step 3: Cache Maven dependencies
+      # Maven downloads dependencies on every run without this
+      # Caching saves 2-3 minutes per run
+      - name: Cache Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository          # where Maven stores downloads
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          # key changes only when pom.xml changes → smart cache invalidation
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      # Step 4: Build and run tests
+      # -B means batch mode — less verbose output, better for CI logs
+      - name: Build and test
+        run: ./mvnw test -B
