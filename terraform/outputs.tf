@@ -47,3 +47,19 @@ output "rds_db_name" {
   description = "Database name inside PostgreSQL"
   value       = aws_db_instance.postgres.db_name
 }
+
+# IAM outputs — ECS task definition needs these ARNs on Day 16
+output "ecs_task_role_arn" {
+  description = "ARN of the ECS task role (used by your app)"
+  value       = aws_iam_role.ecs_task_role.arn
+}
+
+output "ecs_execution_role_arn" {
+  description = "ARN of the ECS execution role (used by ECS agent)"
+  value       = aws_iam_role.ecs_execution_role.arn
+}
+
+output "s3_access_policy_arn" {
+  description = "ARN of the S3 access policy"
+  value       = aws_iam_policy.s3_access.arn
+}
