@@ -43,3 +43,26 @@ resource "aws_s3_bucket_versioning" "resumes" {
     status = "Enabled"
   }
 }
+
+# ── S3 Event Notification ──────────────────────────────────────
+# When a file is uploaded to S3, automatically send event to SQS
+# This is what kicks off the entire AI processing pipeline
+resource "aws_s3_bucket_notification" "resume_upload" {
+  bucket = aws_s3_bucket.resumes.id
+
+  queue {
+    # Which SQS queue to notify
+    queue_arn = aws_sqs_queue.resume_queue.arn
+
+    # Which S3 events trigger the notification
+    events = ["s3:ObjectCreated:*"]  # any upload (PUT, POST, COPY)
+
+    # Only trigger for PDF files
+    # Prevents notifications for thumbnails or temp files
+    filter_suffix = ".pdf"
+  }
+
+  # S3 notification needs the queue policy to exist first
+  # Otherwise S3 can't verify it has permission to send
+  depends_on = [aws_sqs_queue_policy.resume_queue]
+}
