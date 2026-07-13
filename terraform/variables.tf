@@ -48,3 +48,8 @@ variable "db_password" {
   type        = string
   sensitive   = true   # Terraform won't print this in logs
 }
+
+variable "notification_email" {
+  description = "Email addresses to receive SNS notifications"
+  type        = list(string)
+}

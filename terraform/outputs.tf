@@ -63,3 +63,23 @@ output "s3_access_policy_arn" {
   description = "ARN of the S3 access policy"
   value       = aws_iam_policy.s3_access.arn
 }
+
+output "sqs_queue_url" {
+  description = "SQS queue URL — Lambda reads from this"
+  value       = aws_sqs_queue.resume_queue.id
+}
+
+output "sqs_queue_arn" {
+  description = "SQS queue ARN"
+  value       = aws_sqs_queue.resume_queue.arn
+}
+
+output "dlq_url" {
+  description = "Dead letter queue URL for failed messages"
+  value       = aws_sqs_queue.dlq.id
+}
+
+output "sns_topic_arn" {
+  description = "SNS topic ARN — Lambda publishes here"
+  value       = aws_sns_topic.notifications.arn
+}
