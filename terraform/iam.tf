@@ -118,3 +118,10 @@ resource "aws_iam_role_policy_attachment" "ecs_execution_managed" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
   #             ↑ this is an AWS-managed policy — AWS maintains it
 }
+
+# Attach secrets access policy to ECS task role
+# Now your Spring Boot containers can read Secrets Manager
+resource "aws_iam_role_policy_attachment" "ecs_task_secrets" {
+  role       = aws_iam_role.ecs_task_role.name
+  policy_arn = aws_iam_policy.secrets_access.arn
+}
