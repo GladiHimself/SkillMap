@@ -83,3 +83,18 @@ output "sns_topic_arn" {
   description = "SNS topic ARN — Lambda publishes here"
   value       = aws_sns_topic.notifications.arn
 }
+
+output "db_secret_arn" {
+  description = "ARN of the database credentials secret"
+  value       = aws_secretsmanager_secret.db_credentials.arn
+}
+
+output "app_config_secret_arn" {
+  description = "ARN of the app config secret"
+  value       = aws_secretsmanager_secret.app_config.arn
+}
+
+output "db_secret_name" {
+  description = "Name of the DB secret — used in Spring Boot config"
+  value       = local.db_secret_name
+}

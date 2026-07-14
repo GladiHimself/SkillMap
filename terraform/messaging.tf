@@ -107,3 +107,108 @@ resource "aws_sns_topic_subscription" "email" {
   protocol  = "email"
   endpoint  = each.value
 }
+
+# ── Local Values ───────────────────────────────────────────────
+# Define once, use everywhere in this file
+# Avoids repeating the same string in multiple places
+locals {
+  db_secret_name  = "${var.project_name}/${var.environment}/db-credentials"
+  app_secret_name = "${var.project_name}/${var.environment}/app-config"
+}
+
+# ── Database Credentials Secret ────────────────────────────────
+# The secret "container" — just the name and metadata
+# The actual value is stored in aws_secretsmanager_secret_version
+resource "aws_secretsmanager_secret" "db_credentials" {
+  name        = local.db_secret_name
+  description = "SkillMap RDS PostgreSQL credentials"
+
+  # How long AWS waits before permanently deleting a secret
+  # after you call delete. Minimum is 7 days.
+  # Set to 7 for dev so you can recreate quickly during learning
+  recovery_window_in_days = 7
+
+  tags = {
+    Name        = local.db_secret_name
+    Project     = var.project_name
+    Environment = var.environment
+  }
+}
+
+# ── Database Credentials Secret Value ─────────────────────────
+# The actual sensitive values stored inside the secret container
+# Stored as JSON so you can have multiple values in one secret
+resource "aws_secretsmanager_secret_version" "db_credentials" {
+  secret_id = aws_secretsmanager_secret.db_credentials.id
+
+  # jsonencode converts this HCL map into a JSON string
+  # Your Spring Boot app will parse this JSON at runtime
+  secret_string = jsonencode({
+    username = var.db_username
+    password = var.db_password
+    host     = aws_db_instance.postgres.address  # RDS hostname
+    port     = 5432
+    dbname   = var.db_name
+    url      = "jdbc:postgresql://${aws_db_instance.postgres.address}:5432/${var.db_name}"
+  })
+}
+
+# ── App Config Secret ──────────────────────────────────────────
+# Non-database secrets your app might need
+# AWS keys, API keys, etc. — all in one place
+resource "aws_secretsmanager_secret" "app_config" {
+  name        = local.app_secret_name
+  description = "SkillMap application configuration secrets"
+
+  recovery_window_in_days = 7
+
+  tags = {
+    Name        = local.app_secret_name
+    Project     = var.project_name
+    Environment = var.environment
+  }
+}
+
+resource "aws_secretsmanager_secret_version" "app_config" {
+  secret_id = aws_secretsmanager_secret.app_config.id
+
+  secret_string = jsonencode({
+    s3_bucket_name = aws_s3_bucket.resumes.bucket
+    sqs_queue_url  = aws_sqs_queue.resume_queue.id
+    sns_topic_arn  = aws_sns_topic.notifications.arn
+    aws_region     = var.aws_region
+  })
+}
+
+# ── IAM Policy: Secrets Manager Access ────────────────────────
+# Allows the ECS task to read these specific secrets
+# Note: only these two secrets — not all secrets in your account
+resource "aws_iam_policy" "secrets_access" {
+  name        = "${var.project_name}-secrets-access-policy"
+  description = "Allows SkillMap app to read its secrets from Secrets Manager"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "SecretsManagerAccess"
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue",  # read the secret
+          "secretsmanager:DescribeSecret"   # read metadata
+        ]
+        # Only allow access to SkillMap's own secrets
+        # Not any other secrets in your AWS account
+        Resource = [
+          aws_secretsmanager_secret.db_credentials.arn,
+          aws_secretsmanager_secret.app_config.arn
+        ]
+      }
+    ]
+  })
+
+  tags = {
+    Project     = var.project_name
+    Environment = var.environment
+  }
+}
