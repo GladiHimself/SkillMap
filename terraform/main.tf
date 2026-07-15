@@ -17,6 +17,7 @@ provider "aws" {
 resource "aws_s3_bucket" "resumes" {
   # Bucket names must be globally unique across all of AWS
   bucket = "${var.project_name}-resumes-${var.environment}"
+  force_destroy = true
 
   tags = {
     Project     = var.project_name
