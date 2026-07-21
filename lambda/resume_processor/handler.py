@@ -2,181 +2,195 @@ import json
 import boto3
 import logging
 import urllib.parse
+import os
 
-# Set up structured logging
-# Every log line will be a JSON object — easier to search in CloudWatch
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 def log(level, message, **kwargs):
-    """Structured logger — always logs as JSON with context"""
-    log_entry = {
-        "level": level,
-        "message": message,
-        **kwargs  # any extra fields passed in
-    }
+    """Structured logger — always logs as JSON"""
+    log_entry = {"level": level, "message": message, **kwargs}
     if level == "ERROR":
         logger.error(json.dumps(log_entry))
     else:
         logger.info(json.dumps(log_entry))
 
-# AWS clients — created outside handler so they're reused on warm starts
-# Creating clients is expensive — do it once, reuse many times
+# AWS clients — initialised once outside handler for warm start reuse
 s3_client      = boto3.client("s3")
 bedrock_client = boto3.client("bedrock-runtime", region_name="ap-south-1")
 sns_client     = boto3.client("sns")
+secrets_client = boto3.client("secretsmanager", region_name="ap-south-1")
+
+# Cache DB credentials — fetched once per Lambda container lifetime
+_db_credentials = None
+
+def get_db_credentials():
+    global _db_credentials
+    if _db_credentials is None:
+        secret_name = os.environ.get(
+            "DB_SECRET_NAME",
+            "skillmap/dev/db-credentials"
+        )
+        log("INFO", "Fetching DB credentials from Secrets Manager",
+            secret_name=secret_name)
+        response = secrets_client.get_secret_value(SecretId=secret_name)
+        _db_credentials = json.loads(response["SecretString"])
+        log("INFO", "DB credentials fetched successfully")
+    return _db_credentials
+
+def get_db_connection():
+    import psycopg2
+    creds = get_db_credentials()
+    return psycopg2.connect(
+        host            = creds["host"],
+        database        = creds["dbname"],
+        user            = creds["username"],
+        password        = creds["password"],
+        port            = creds.get("port", 5432),
+        connect_timeout = 10
+    )
 
 def lambda_handler(event, context):
-    """
-    Main entry point — Lambda calls this function for every SQS message.
-    event: contains the SQS message(s) from the queue
-    context: Lambda runtime info (function name, timeout remaining, etc.)
-    """
     log("INFO", "Lambda triggered", record_count=len(event["Records"]))
 
-    # SQS can batch multiple messages — process each one
     for record in event["Records"]:
-
-        # The SQS message body is itself a JSON string
-        # containing the S3 event that triggered it
         sqs_body = json.loads(record["body"])
 
-        # Extract S3 bucket and file key from the event
-        s3_event   = sqs_body["Records"][0]["s3"]
-        bucket     = s3_event["bucket"]["name"]
-        key        = urllib.parse.unquote_plus(s3_event["object"]["key"])
+        # Handle different S3 notification formats
+        if "Records" in sqs_body:
+            s3_event = sqs_body["Records"][0]["s3"]
+        elif "s3" in sqs_body:
+            s3_event = sqs_body["s3"]
+        else:
+            log("INFO", "Unexpected message format", body=str(sqs_body)[:500])
+            continue
+
+        bucket = s3_event["bucket"]["name"]
+        key    = urllib.parse.unquote_plus(s3_event["object"]["key"])
 
         log("INFO", "Processing resume", bucket=bucket, key=key)
 
         try:
-            # Step 1: Read the resume PDF from S3
+            # Step 1: Read resume from S3
             resume_text = read_resume_from_s3(bucket, key)
 
-            # Step 2: Send to Bedrock, get back extracted skills
-            extracted   = extract_skills_with_bedrock(resume_text)
+            # Step 2: Extract skills via Bedrock AI
+            extracted = extract_skills_with_bedrock(resume_text)
 
-            # Step 3: Log the result (RDS update comes Day 13)
-            log("INFO", "Skills extracted successfully",
-                key=key,
-                skills=extracted.get("skills"),
-                experience=extracted.get("years_experience")
-            )
+            # Step 3: Save results to RDS
+            save_to_rds(key, extracted)
 
-            # Step 4: Notify via SNS (full notification comes Day 14)
+            # Step 4: Notify via SNS
             publish_notification(key, extracted)
 
+            log("INFO", "Resume processed successfully", key=key)
+
         except Exception as e:
-            # Log the full error with context
             log("ERROR", "Failed to process resume",
-                key=key,
-                error=str(e)
-            )
-            # Re-raise so SQS knows this message failed
-            # After 3 failures it goes to DLQ
+                key=key, error=str(e))
             raise
 
 def read_resume_from_s3(bucket: str, key: str) -> str:
-    """
-    Downloads resume from S3 and returns its text content.
-    For PDFs, we read the raw bytes and decode.
-    Real PDF parsing comes in a later enhancement.
-    """
+    """Downloads resume from S3 and returns text content"""
     log("INFO", "Reading from S3", bucket=bucket, key=key)
-
     response = s3_client.get_object(Bucket=bucket, Key=key)
+    content  = response["Body"].read()
 
-    # Read the file content
-    content = response["Body"].read()
-
-    # For now treat as text — proper PDF parsing added later
-    # Bedrock is smart enough to work with raw PDF text extraction
     try:
         return content.decode("utf-8")
     except UnicodeDecodeError:
-        # PDF binary — return a sample text for testing
-        # Real PDF parsing with pypdf comes later
         return """
-        John Smith
-        Email: john@example.com
-        
-        Skills: Java, Spring Boot, AWS, PostgreSQL, Docker, React
-        
-        Experience:
-        - Backend Developer at TechCorp (3 years)
-        - Built REST APIs with Spring Boot
-        - Deployed applications on AWS ECS
-        
-        Education:
-        - BSc Computer Science, University College Dublin, 2021
+        John Smith | john@example.com
+        Skills: Java, Spring Boot, AWS, PostgreSQL, Docker, Terraform, React
+        Experience: Backend Developer at TechCorp (3 years)
+        - Built REST APIs with Spring Boot deployed on AWS ECS
+        - Provisioned infrastructure with Terraform
+        Education: BSc Computer Science, University College Dublin, 2021
         """
 
 def extract_skills_with_bedrock(resume_text: str) -> dict:
-    """
-    Sends resume text to Claude Haiku via Bedrock.
-    Returns structured JSON with extracted skills and experience.
-    """
-    log("INFO", "Calling Bedrock Claude Haiku")
+    """MOCK — returns hardcoded skills for testing without Bedrock"""
+    log("INFO", "Using mock Bedrock response for testing")
+    return {
+        "skills": ["Java", "Spring Boot", "AWS", "Terraform", "React", "PostgreSQL", "Docker"],
+        "years_experience": 3,
+        "education": "BSc Computer Science",
+        "summary": "Backend developer with 3 years experience in Java and AWS cloud infrastructure."
+    }
 
-    # The prompt — specific instructions produce reliable JSON output
-    prompt = f"""You are an expert resume parser for a job matching platform.
+def save_to_rds(s3_key: str, extracted: dict):
+    """Creates table if needed, then upserts resume record"""
+    log("INFO", "Saving extracted data to RDS", s3_key=s3_key)
 
-Analyse the resume below and extract the following information.
-Return ONLY a valid JSON object with NO explanation, NO markdown, NO code blocks.
-Just the raw JSON.
+    skills_str = ", ".join(extracted.get("skills", []))
+    conn   = None
+    cursor = None
 
-Required fields:
-- skills: array of technical skills (strings)
-- years_experience: total years of work experience (number)  
-- education: highest education level (string)
-- summary: one sentence professional summary (string)
+    try:
+        conn   = get_db_connection()
+        cursor = conn.cursor()
 
-Resume:
-{resume_text}"""
+        # Create table if it doesn't exist
+        # This runs every time but does nothing if table exists
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS resumes (
+                id               BIGSERIAL PRIMARY KEY,
+                candidate_name   VARCHAR(255),
+                email            VARCHAR(255),
+                s3_key           VARCHAR(255),
+                extracted_skills TEXT,
+                match_score      DOUBLE PRECISION,
+                status           VARCHAR(50)
+            )
+        """)
+        conn.commit()
+        log("INFO", "Table check complete")
 
-    # Bedrock API call — Claude messages format
-    response = bedrock_client.invoke_model(
-        modelId="anthropic.claude-3-haiku-20240307-v1:0",
-        body=json.dumps({
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 1000,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-        }),
-        contentType="application/json",
-        accept="application/json"
-    )
+        # Try to update existing record first
+        cursor.execute("""
+            UPDATE resumes
+            SET extracted_skills = %s,
+                status           = %s
+            WHERE s3_key = %s
+        """, (skills_str, "PROCESSED", s3_key))
 
-    # Parse the response
-    response_body = json.loads(response["body"].read())
+        rows_updated = cursor.rowcount
 
-    # Extract the text content from Claude's response
-    raw_text = response_body["content"][0]["text"]
+        if rows_updated == 0:
+            # No existing record — insert one
+            log("INFO", "No existing record — inserting new one", s3_key=s3_key)
+            cursor.execute("""
+                INSERT INTO resumes (candidate_name, email, s3_key, extracted_skills, status)
+                VALUES ('Pranav Praveen', 'pranav@example.com', %s, %s, 'PROCESSED')
+            """, (s3_key, skills_str))
 
-    log("INFO", "Bedrock response received", raw_response=raw_text[:200])
+        conn.commit()
+        log("INFO", "RDS updated successfully",
+            s3_key=s3_key,
+            rows_updated=rows_updated,
+            skills=skills_str
+        )
 
-    # Parse the JSON Claude returned
-    extracted = json.loads(raw_text)
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        log("ERROR", "Failed to update RDS", error=str(e))
+        raise
 
-    return extracted
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 def publish_notification(key: str, extracted: dict):
-    """
-    Publishes processing result to SNS.
-    SNS then emails the candidate.
-    """
-    import os
+    """Publishes match result to SNS"""
     sns_topic_arn = os.environ.get("SNS_TOPIC_ARN", "")
-
     if not sns_topic_arn:
-        log("INFO", "SNS_TOPIC_ARN not set — skipping notification")
+        log("INFO", "SNS_TOPIC_ARN not set — skipping")
         return
 
     skills_list = ", ".join(extracted.get("skills", []))
-
     message = f"""
 SkillMap — Resume Processed Successfully!
 
@@ -189,9 +203,8 @@ Summary: {extracted.get("summary")}
     """
 
     sns_client.publish(
-        TopicArn=sns_topic_arn,
-        Subject="SkillMap — Your Resume Has Been Processed",
-        Message=message
+        TopicArn = sns_topic_arn,
+        Subject  = "SkillMap — Your Resume Has Been Processed",
+        Message  = message
     )
-
-    log("INFO", "SNS notification published", topic=sns_topic_arn)
+    log("INFO", "SNS notification published")

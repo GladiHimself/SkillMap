@@ -126,7 +126,7 @@ resource "aws_secretsmanager_secret" "db_credentials" {
   # How long AWS waits before permanently deleting a secret
   # after you call delete. Minimum is 7 days.
   # Set to 7 for dev so you can recreate quickly during learning
-  recovery_window_in_days = 7
+  recovery_window_in_days = 0
 
   tags = {
     Name        = local.db_secret_name
@@ -160,7 +160,7 @@ resource "aws_secretsmanager_secret" "app_config" {
   name        = local.app_secret_name
   description = "SkillMap application configuration secrets"
 
-  recovery_window_in_days = 7
+  recovery_window_in_days = 0
 
   tags = {
     Name        = local.app_secret_name
