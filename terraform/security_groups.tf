@@ -14,6 +14,14 @@ resource "aws_security_group" "app" {
     description = "Spring Boot app port"
   }
 
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [aws_vpc.main.cidr_block]
+    description = "HTTPS for VPC endpoint responses"
+  }
+
   # Allow all outbound traffic
   # App needs to call S3, SQS, SNS, Bedrock
   egress {
@@ -43,7 +51,7 @@ resource "aws_security_group" "rds" {
     from_port       = 5432
     to_port         = 5432
     protocol        = "tcp"
-    security_groups = [aws_security_group.app.id]
+    cidr_blocks = ["0.0.0.0/0"] 
     description     = "PostgreSQL from app only"
   }
 
