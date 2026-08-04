@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import JobsPage from './pages/JobsPage';
 import ResumesPage from './pages/ResumesPage';
+import MatchPage from './pages/MatchPage';
 
 export default function App() {
   return (
@@ -11,6 +12,7 @@ export default function App() {
         <Route path="/" element={<Navigate to="/jobs" replace />} />
         <Route path="/jobs" element={<JobsPage />} />
         <Route path="/resumes" element={<ResumesPage />} />
+        <Route path="/match" element={<MatchPage />} />
       </Routes>
     </BrowserRouter>
   );
