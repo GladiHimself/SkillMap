@@ -45,3 +45,4 @@ terraform/terraform.tfvars
 
 # Lambda layers
 lambda/layers/*.zip
+src/main/resources/application-aws.properties

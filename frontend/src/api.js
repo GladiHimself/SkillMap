@@ -42,3 +42,12 @@ export const createResume = async (resumeData) => {
   }
   return res.json();
 };
+
+export const matchResumeToJob = async (resumeId, jobId) => {
+  const res = await fetch(
+    `/api/v1/match?resumeId=${resumeId}&jobId=${jobId}`,
+    { method: 'POST' }
+  );
+  if (!res.ok) throw new Error('Match failed');
+  return res.json();
+};
