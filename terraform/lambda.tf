@@ -50,7 +50,7 @@ resource "aws_iam_policy" "lambda_policy" {
         Sid      = "BedrockAccess"
         Effect   = "Allow"
         Action   = ["bedrock:InvokeModel"]
-        Resource = "arn:aws:bedrock:ap-south-1::foundation-model/anthropic.claude-3-haiku-20240307-v1:0"
+        Resource = "arn:aws:bedrock:ap-south-1::foundation-model/meta.llama3-8b-instruct-v1:0"
       },
       {
         Sid      = "SNSPublish"
