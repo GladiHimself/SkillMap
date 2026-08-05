@@ -86,6 +86,12 @@
 			<groupId>com.fasterxml.jackson.core</groupId>
 			<artifactId>jackson-databind</artifactId>
 		</dependency>
+
+		<!-- AWS SDK v2 — SNS for notifications -->
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>sns</artifactId>
+		</dependency>
 	</dependencies>
 
 	<!-- BOM manages all AWS SDK versions consistently -->
