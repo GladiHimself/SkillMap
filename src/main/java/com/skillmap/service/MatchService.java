@@ -6,62 +6,62 @@ import com.skillmap.model.Resume;
 import com.skillmap.repository.JobRepository;
 import com.skillmap.repository.ResumeRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class MatchService {
 
     private final ResumeRepository resumeRepository;
     private final JobRepository jobRepository;
+    private final NotificationService notificationService;
 
     public MatchResultDTO matchResumeToJob(Long resumeId, Long jobId) {
-
         Resume resume = resumeRepository.findById(resumeId)
                 .orElseThrow(() -> new RuntimeException("Resume not found: " + resumeId));
 
         Job job = jobRepository.findById(jobId)
                 .orElseThrow(() -> new RuntimeException("Job not found: " + jobId));
 
-        return calculateMatch(resume, job);
+        MatchResultDTO result = calculateMatch(resume, job);
+
+        // Send notification after calculating match ← NEW
+        notificationService.sendMatchNotification(result);
+
+        return result;
     }
 
     public MatchResultDTO calculateMatch(Resume resume, Job job) {
-
-        // Parse skills from comma-separated strings
-        // toLowerCase ensures "Java" matches "java"
         List<String> resumeSkills = parseSkills(resume.getExtractedSkills());
         List<String> jobSkills    = parseSkills(job.getRequiredSkills());
 
-        // Find skills that appear in both lists
         List<String> matchedSkills = resumeSkills.stream()
                 .filter(skill -> jobSkills.stream()
                         .anyMatch(jobSkill -> jobSkill.equalsIgnoreCase(skill)))
                 .collect(Collectors.toList());
 
-        // Find skills job needs that candidate doesn't have
         List<String> missingSkills = jobSkills.stream()
                 .filter(skill -> resumeSkills.stream()
                         .noneMatch(resumeSkill -> resumeSkill.equalsIgnoreCase(skill)))
                 .collect(Collectors.toList());
 
-        // Calculate percentage score
         double score = jobSkills.isEmpty() ? 0.0 :
                 ((double) matchedSkills.size() / jobSkills.size()) * 100;
-
-        // Round to 1 decimal place
         score = Math.round(score * 10.0) / 10.0;
 
-        // Human readable verdict based on score
         String verdict = getVerdict(score);
 
-        // Save match score back to resume
         resume.setMatchScore(score);
         resumeRepository.save(resume);
+
+        log.info("Match calculated: {} scored {}% for {} at {}",
+                resume.getCandidateName(), score, job.getTitle(), job.getCompany());
 
         return MatchResultDTO.builder()
                 .resumeId(resume.getId())
@@ -80,7 +80,6 @@ public class MatchService {
         if (skillsString == null || skillsString.isBlank()) {
             return List.of();
         }
-        // Split by comma, trim whitespace, filter empty strings
         return Arrays.stream(skillsString.split(","))
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
