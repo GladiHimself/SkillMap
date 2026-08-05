@@ -1,19 +1,20 @@
 package com.skillmap.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.skillmap.dto.JobRequestDTO;
 import com.skillmap.dto.JobResponseDTO;
 import com.skillmap.model.Job;
 import com.skillmap.repository.JobRepository;
-
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-
-
 import org.springframework.stereotype.Service;
+import software.amazon.awssdk.core.SdkBytes;
+import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
+import software.amazon.awssdk.services.bedrockruntime.model.InvokeModelRequest;
+import software.amazon.awssdk.services.bedrockruntime.model.InvokeModelResponse;
 
-import java.util.ArrayList;
 import java.util.List;
-
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -21,6 +22,8 @@ import java.util.List;
 public class JobService {
 
     private final JobRepository jobRepository;
+    private final BedrockRuntimeClient bedrockClient;
+    private final ObjectMapper objectMapper;
 
     public List<JobResponseDTO> getAllJobs() {
         return jobRepository.findAll()
@@ -64,30 +67,52 @@ public class JobService {
     }
 
     public String extractSkillsFromDescription(String description) {
-    log.info("Extracting skills from description (keyword scan)");
+    log.info("Calling Bedrock Llama 3 for skill extraction");
 
-    // Known technical skills to look for
-    // Stand-in for Bedrock until AWS payment method is sorted
-    String[] knownSkills = {
-        "Java", "Spring Boot", "Spring", "AWS", "Docker", "Kubernetes",
-        "PostgreSQL", "MySQL", "MongoDB", "Redis", "React", "Angular",
-        "Vue", "TypeScript", "JavaScript", "Python", "Node.js", "Go",
-        "Terraform", "Jenkins", "Kafka", "GraphQL", "REST", "Microservices",
-        "CI/CD", "Git", "Linux", "Azure", "GCP", "Lambda", "S3"
-    };
+    // Llama uses a simple prompt format
+    String prompt = """
+            <|begin_of_text|><|start_header_id|>user<|end_header_id|>
+            
+            Extract ONLY the technical skills from this job description.
+            Return ONLY a comma-separated list of skills.
+            No explanation, no numbering, no bullets — just the skills.
+            
+            Example output: Java, Spring Boot, AWS, PostgreSQL, Docker
+            
+            Job Description:
+            """ + description + """
+            <|eot_id|><|start_header_id|>assistant<|end_header_id|>
+            """;
 
-    List<String> found = new ArrayList<>();
-    String lowerDesc = description.toLowerCase();
+    try {
+        String requestBody = objectMapper.writeValueAsString(Map.of(
+                "prompt", prompt,
+                "max_gen_len", 200,
+                "temperature", 0.1  // low temperature = more predictable output
+        ));
 
-    for (String skill : knownSkills) {
-        if (lowerDesc.contains(skill.toLowerCase())) {
-            found.add(skill);
-        }
+        InvokeModelResponse response = bedrockClient.invokeModel(
+                InvokeModelRequest.builder()
+                        .modelId("meta.llama3-8b-instruct-v1:0")
+                        .body(SdkBytes.fromUtf8String(requestBody))
+                        .contentType("application/json")
+                        .accept("application/json")
+                        .build()
+        );
+
+        Map<?, ?> responseMap = objectMapper.readValue(
+                response.body().asUtf8String(), Map.class);
+
+        // Llama returns "generation" field not "content"
+        String skills = responseMap.get("generation").toString().trim();
+
+        log.info("Llama extracted skills: {}", skills);
+        return skills;
+
+    } catch (Exception e) {
+        log.error("Failed to extract skills: {}", e.getMessage());
+        return "";
     }
-
-    String result = String.join(", ", found);
-    log.info("Found skills: {}", result);
-    return result;
 }
 
     private JobResponseDTO toResponseDTO(Job job) {

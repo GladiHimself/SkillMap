@@ -109,14 +109,40 @@ def read_resume_from_s3(bucket: str, key: str) -> str:
         """
 
 def extract_skills_with_bedrock(resume_text: str) -> dict:
-    """MOCK — returns hardcoded skills for testing without Bedrock"""
-    log("INFO", "Using mock Bedrock response for testing")
-    return {
-        "skills": ["Java", "Spring Boot", "AWS", "Terraform", "React", "PostgreSQL", "Docker"],
-        "years_experience": 3,
-        "education": "BSc Computer Science",
-        "summary": "Backend developer with 3 years experience in Java and AWS cloud infrastructure."
-    }
+    """Sends resume to Claude Haiku 4.5, returns structured JSON"""
+    log("INFO", "Calling Bedrock Claude Haiku 4.5")
+
+    prompt = f"""You are an expert resume parser for a job matching platform.
+
+Analyse the resume below and extract the following information.
+Return ONLY a valid JSON object with NO explanation, NO markdown, NO code blocks.
+Just the raw JSON.
+
+Required fields:
+- skills: array of technical skills (strings)
+- years_experience: total years of work experience (number)
+- education: highest education level (string)
+- summary: one sentence professional summary (string)
+
+Resume:
+{resume_text}"""
+
+    response = bedrock_client.invoke_model(
+        modelId     = "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+        body        = json.dumps({
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 1000,
+            "messages": [{"role": "user", "content": prompt}]
+        }),
+        contentType = "application/json",
+        accept      = "application/json"
+    )
+
+    response_body = json.loads(response["body"].read())
+    raw_text      = response_body["content"][0]["text"]
+
+    log("INFO", "Bedrock response received", preview=raw_text[:200])
+    return json.loads(raw_text)
 
 def save_to_rds(s3_key: str, extracted: dict):
     """Creates table if needed, then upserts resume record"""
@@ -131,7 +157,6 @@ def save_to_rds(s3_key: str, extracted: dict):
         cursor = conn.cursor()
 
         # Create table if it doesn't exist
-        # This runs every time but does nothing if table exists
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS resumes (
                 id               BIGSERIAL PRIMARY KEY,
@@ -157,7 +182,6 @@ def save_to_rds(s3_key: str, extracted: dict):
         rows_updated = cursor.rowcount
 
         if rows_updated == 0:
-            # No existing record — insert one
             log("INFO", "No existing record — inserting new one", s3_key=s3_key)
             cursor.execute("""
                 INSERT INTO resumes (candidate_name, email, s3_key, extracted_skills, status)
