@@ -92,6 +92,12 @@
 			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>sns</artifactId>
 		</dependency>
+
+		<!-- Spring Actuator — health check endpoint for ECS -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
+		</dependency>
 	</dependencies>
 
 	<!-- BOM manages all AWS SDK versions consistently -->

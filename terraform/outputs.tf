@@ -98,3 +98,8 @@ output "db_secret_name" {
   description = "Name of the DB secret — used in Spring Boot config"
   value       = local.db_secret_name
 }
+
+output "ecr_repository_url" {
+  description = "ECR repository URL — used in docker push and ECS task definition"
+  value       = aws_ecr_repository.skillmap.repository_url
+}
