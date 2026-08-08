@@ -53,3 +53,9 @@ variable "notification_email" {
   description = "Email addresses to receive SNS notifications"
   type        = list(string)
 }
+
+variable "docker_image_url" {
+  description = "ECR image URL for the Spring Boot app"
+  type        = string
+  default     = ""
+}
