@@ -3,6 +3,7 @@
 # ECS Fargate pulls the image from here on deployment
 resource "aws_ecr_repository" "skillmap" {
   name                 = var.project_name
+  force_delete         = true 
   image_tag_mutability = "MUTABLE"
   # MUTABLE means you can overwrite tags like "latest"
   # IMMUTABLE would require unique tags every time
