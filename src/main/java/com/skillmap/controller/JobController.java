@@ -46,4 +46,9 @@ public class JobController {
         return ResponseEntity.noContent().build();
     }
 
+    @GetMapping("/ping")
+    public String ping() {
+        return "SkillMap is alive — deployed via CI/CD!";
+    }
+
 }
