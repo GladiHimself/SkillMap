@@ -132,3 +132,75 @@ resource "aws_iam_role_policy_attachment" "ecs_execution_secrets" {
   role       = aws_iam_role.ecs_execution_role.name
   policy_arn = aws_iam_policy.secrets_access.arn
 }
+
+# ── IAM User for GitHub Actions ────────────────────────────────
+# Separate from skillmap-terraform — used only by CI/CD pipeline
+resource "aws_iam_user" "github_actions" {
+  name = "${var.project_name}-github-actions"
+
+  tags = {
+    Name    = "${var.project_name}-github-actions"
+    Project = var.project_name
+  }
+}
+
+# ── IAM Policy: GitHub Actions Deployment Permissions ──────────
+# Least privilege — only what's needed to build and deploy
+resource "aws_iam_policy" "github_actions_deploy" {
+  name        = "${var.project_name}-github-actions-policy"
+  description = "Permissions for GitHub Actions to push images and deploy to ECS"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        # Push Docker images to ECR
+        Sid    = "ECRPush"
+        Effect = "Allow"
+        Action = [
+          "ecr:GetAuthorizationToken",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:PutImage",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload"
+        ]
+        Resource = "*"
+      },
+      {
+        # Trigger ECS deployment
+        Sid    = "ECSDeploy"
+        Effect = "Allow"
+        Action = [
+          "ecs:UpdateService",
+          "ecs:DescribeServices",
+          "ecs:DescribeTaskDefinition",
+          "ecs:RegisterTaskDefinition"
+        ]
+        Resource = "*"
+      },
+      {
+        # Needed to register new task definitions
+        Sid    = "PassRole"
+        Effect = "Allow"
+        Action = "iam:PassRole"
+        Resource = [
+          aws_iam_role.ecs_execution_role.arn,
+          aws_iam_role.ecs_task_role.arn
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_user_policy_attachment" "github_actions" {
+  user       = aws_iam_user.github_actions.name
+  policy_arn = aws_iam_policy.github_actions_deploy.arn
+}
+
+# ── Access Key for GitHub Actions ──────────────────────────────
+# Generates access key + secret key
+# These get added to GitHub Secrets in Step 3
+resource "aws_iam_access_key" "github_actions" {
+  user = aws_iam_user.github_actions.name
+}

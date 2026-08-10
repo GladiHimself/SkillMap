@@ -118,3 +118,15 @@ output "ecs_service_name" {
   description = "ECS service name"
   value       = aws_ecs_service.app.name
 }
+
+output "github_actions_access_key_id" {
+  description = "Access key for GitHub Actions — add to GitHub Secrets"
+  value       = aws_iam_access_key.github_actions.id
+  sensitive   = true
+}
+
+output "github_actions_secret_access_key" {
+  description = "Secret key for GitHub Actions — add to GitHub Secrets"
+  value       = aws_iam_access_key.github_actions.secret
+  sensitive   = true
+}

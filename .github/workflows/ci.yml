@@ -1,51 +1,105 @@
-# Name appears in GitHub Actions tab
-name: SkillMap CI
+name: SkillMap CI/CD
 
-# WHEN to run this workflow
 on:
   push:
-    branches: [ "**" ]     # every push to any branch
+    branches: [ "**" ]
   pull_request:
-    branches: [ main ]     # every PR targeting main
+    branches: [ main ]
 
-# WHAT to run
 jobs:
 
-  # Job name — shows up in GitHub UI
-  build-and-test:
-
-    # WHERE to run — GitHub provides this Ubuntu machine for free
+  # ── Job 1: Test ─────────────────────────────────────────────
+  # Runs on every push and PR — same as Day 7b
+  test:
     runs-on: ubuntu-latest
 
-    # Steps run in order, top to bottom
     steps:
-
-      # Step 1: Get your code onto the runner machine
-      # Without this, the machine has no idea what your project is
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Step 2: Install Java 21 on the runner machine
-      # Temurin is the open-source distribution of Java from Adoptium
       - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
 
-      # Step 3: Cache Maven dependencies
-      # Maven downloads dependencies on every run without this
-      # Caching saves 2-3 minutes per run
       - name: Cache Maven dependencies
         uses: actions/cache@v4
         with:
-          path: ~/.m2/repository          # where Maven stores downloads
+          path: ~/.m2/repository
           key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-          # key changes only when pom.xml changes → smart cache invalidation
           restore-keys: |
             ${{ runner.os }}-maven-
 
-      # Step 4: Build and run tests
-      # -B means batch mode — less verbose output, better for CI logs
       - name: Build and test
         run: ./mvnw test -B
+
+  # ── Job 2: Deploy ───────────────────────────────────────────
+  # Only runs on push to main — never on PRs or other branches
+  # Only runs AFTER test job succeeds
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+
+    # Critical guard — only deploy from main branch
+    # Prevents accidental deployment from feature branches
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Configure AWS credentials for this job
+      # Uses the GitHub Secrets you added in Step 3
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # Login to ECR using the official AWS action
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Build and push Docker image
+      - name: Build, tag, and push image to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          ECR_REPOSITORY: skillmap
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Build with platform flag — GitHub runners are amd64 by default
+          # but explicit is safer
+          docker build --platform linux/amd64 \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+            .
+          
+          # Push both tags
+          # SHA tag — exact version, useful for rollback
+          # latest tag — what ECS task definition references
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      # Tell ECS to redeploy with the new image
+      - name: Deploy to ECS
+        run: |
+          aws ecs update-service \
+            --cluster skillmap-cluster \
+            --service skillmap-service \
+            --force-new-deployment \
+            --region ${{ secrets.AWS_REGION }}
+
+      # Wait for deployment to stabilize before marking job successful
+      # This means the workflow only shows green when the app is actually healthy
+      - name: Wait for service to stabilize
+        run: |
+          aws ecs wait services-stable \
+            --cluster skillmap-cluster \
+            --services skillmap-service \
+            --region ${{ secrets.AWS_REGION }}
+
+      - name: Deployment complete
+        run: echo "✅ SkillMap deployed successfully to ECS"
