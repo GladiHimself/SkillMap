@@ -110,7 +110,7 @@ resource "aws_ecs_task_definition" "app" {
         interval    = 30
         timeout     = 10
         retries     = 3
-        startPeriod = 60
+        startPeriod = 90
       }
 
       essential = true  # if this container stops, task stops
@@ -192,6 +192,7 @@ resource "aws_ecs_service" "app" {
   task_definition = aws_ecs_task_definition.app.arn
   desired_count   = 1       # run 1 container
   launch_type     = "FARGATE"
+  health_check_grace_period_seconds = 120
 
   # Network config — tasks run in private subnets
   # They can't be reached directly from internet
