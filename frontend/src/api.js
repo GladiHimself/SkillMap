@@ -1,7 +1,9 @@
 // Central place for all API calls
 // If backend URL changes, we only change it here
-
-const BASE_URL = '/api/v1';
+// Reads from .env.production when built, falls back to proxy locally
+const BASE_URL = import.meta.env.VITE_API_URL
+  ? `${import.meta.env.VITE_API_URL}/api/v1`
+  : '/api/v1';
 
 // ── Jobs ──────────────────────────────────────
 export const getAllJobs = async () => {
@@ -45,7 +47,7 @@ export const createResume = async (resumeData) => {
 
 export const matchResumeToJob = async (resumeId, jobId) => {
   const res = await fetch(
-    `/api/v1/match?resumeId=${resumeId}&jobId=${jobId}`,
+    `${BASE_URL}/match?resumeId=${resumeId}&jobId=${jobId}`,
     { method: 'POST' }
   );
   if (!res.ok) throw new Error('Match failed');
