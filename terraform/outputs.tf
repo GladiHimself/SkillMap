@@ -130,3 +130,18 @@ output "github_actions_secret_access_key" {
   value       = aws_iam_access_key.github_actions.secret
   sensitive   = true
 }
+
+output "cloudfront_url" {
+  description = "CloudFront URL — your live React app"
+  value       = "https://${aws_cloudfront_distribution.frontend.domain_name}"
+}
+
+output "frontend_bucket_name" {
+  description = "S3 bucket name for frontend files"
+  value       = aws_s3_bucket.frontend.bucket
+}
+
+output "cloudfront_distribution_id" {
+  description = "CloudFront distribution ID — needed for cache invalidation"
+  value       = aws_cloudfront_distribution.frontend.id
+}
