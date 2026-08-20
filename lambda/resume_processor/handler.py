@@ -109,40 +109,50 @@ def read_resume_from_s3(bucket: str, key: str) -> str:
         """
 
 def extract_skills_with_bedrock(resume_text: str) -> dict:
-    """Sends resume to Claude Haiku 4.5, returns structured JSON"""
-    log("INFO", "Calling Bedrock Claude Haiku 4.5")
+    """Sends resume to Llama 3, returns structured JSON"""
+    log("INFO", "Calling Bedrock Llama 3 for skill extraction")
 
-    prompt = f"""You are an expert resume parser for a job matching platform.
+    prompt = f"""[INST] You must respond with ONLY a raw JSON object. No introduction, no explanation, no summary text, no markdown formatting. Your entire response must start with {{ and end with }}.
 
-Analyse the resume below and extract the following information.
-Return ONLY a valid JSON object with NO explanation, NO markdown, NO code blocks.
-Just the raw JSON.
-
-Required fields:
-- skills: array of technical skills (strings)
-- years_experience: total years of work experience (number)
-- education: highest education level (string)
-- summary: one sentence professional summary (string)
+Extract this exact JSON structure from the resume below:
+{{"skills": ["skill1", "skill2"], "years_experience": 3, "education": "degree", "summary": "one sentence"}}
 
 Resume:
-{resume_text}"""
+{resume_text}
+
+Respond with ONLY the JSON object now: [/INST]"""
 
     response = bedrock_client.invoke_model(
-        modelId     = "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+        modelId     = "meta.llama3-8b-instruct-v1:0",
         body        = json.dumps({
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 1000,
-            "messages": [{"role": "user", "content": prompt}]
+            "prompt": prompt,
+            "max_gen_len": 500,
+            "temperature": 0.0
         }),
         contentType = "application/json",
         accept      = "application/json"
     )
 
     response_body = json.loads(response["body"].read())
-    raw_text      = response_body["content"][0]["text"]
+    raw_text = response_body["generation"].strip()
 
     log("INFO", "Bedrock response received", preview=raw_text[:200])
-    return json.loads(raw_text)
+
+    start = raw_text.find("{")
+    end = raw_text.rfind("}") + 1
+
+    if start == -1 or end == 0:
+        # Llama didn't return JSON at all — fall back to a safe default
+        log("ERROR", "No JSON found in Llama response, using fallback")
+        return {
+            "skills": [],
+            "years_experience": 0,
+            "education": "Unknown",
+            "summary": "Could not extract structured data from resume."
+        }
+
+    json_text = raw_text[start:end]
+    return json.loads(json_text)
 
 def save_to_rds(s3_key: str, extracted: dict):
     """Creates table if needed, then upserts resume record"""
@@ -157,12 +167,14 @@ def save_to_rds(s3_key: str, extracted: dict):
         cursor = conn.cursor()
 
         # Create table if it doesn't exist
+        # Column name is s3key (no underscore) to match Hibernate's
+        # naming from the Java field s3Key in the Resume entity
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS resumes (
                 id               BIGSERIAL PRIMARY KEY,
                 candidate_name   VARCHAR(255),
                 email            VARCHAR(255),
-                s3_key           VARCHAR(255),
+                s3key            VARCHAR(255),
                 extracted_skills TEXT,
                 match_score      DOUBLE PRECISION,
                 status           VARCHAR(50)
@@ -176,7 +188,7 @@ def save_to_rds(s3_key: str, extracted: dict):
             UPDATE resumes
             SET extracted_skills = %s,
                 status           = %s
-            WHERE s3_key = %s
+            WHERE s3key = %s
         """, (skills_str, "PROCESSED", s3_key))
 
         rows_updated = cursor.rowcount
@@ -184,7 +196,7 @@ def save_to_rds(s3_key: str, extracted: dict):
         if rows_updated == 0:
             log("INFO", "No existing record — inserting new one", s3_key=s3_key)
             cursor.execute("""
-                INSERT INTO resumes (candidate_name, email, s3_key, extracted_skills, status)
+                INSERT INTO resumes (candidate_name, email, s3key, extracted_skills, status)
                 VALUES ('Pranav Praveen', 'pranav@example.com', %s, %s, 'PROCESSED')
             """, (s3_key, skills_str))
 
