@@ -16,6 +16,8 @@ import software.amazon.awssdk.services.bedrockruntime.model.InvokeModelResponse;
 import java.util.List;
 import java.util.Map;
 
+import static net.logstash.logback.argument.StructuredArguments.kv;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -42,14 +44,19 @@ public class JobService {
 
         String requiredSkills = request.getRequiredSkills();
 
-        // If no skills provided but description exists → use AI to extract
         if ((requiredSkills == null || requiredSkills.isBlank())
                 && request.getDescription() != null
                 && !request.getDescription().isBlank()) {
 
-            log.info("Extracting skills from job description using Bedrock");
+            log.info("Extracting skills from job description using Bedrock",
+                    kv("jobTitle", request.getTitle()),
+                    kv("company", request.getCompany()));
+
             requiredSkills = extractSkillsFromDescription(request.getDescription());
-            log.info("Extracted skills: {}", requiredSkills);
+
+            log.info("Skills extracted from description",
+                    kv("jobTitle", request.getTitle()),
+                    kv("extractedSkills", requiredSkills));
         }
 
         Job job = Job.builder()
@@ -67,53 +74,51 @@ public class JobService {
     }
 
     public String extractSkillsFromDescription(String description) {
-    log.info("Calling Bedrock Llama 3 for skill extraction");
+        log.info("Calling Bedrock Llama 3 for skill extraction");
 
-    // Llama uses a simple prompt format
-    String prompt = """
-            <|begin_of_text|><|start_header_id|>user<|end_header_id|>
-            
-            Extract ONLY the technical skills from this job description.
-            Return ONLY a comma-separated list of skills.
-            No explanation, no numbering, no bullets — just the skills.
-            
-            Example output: Java, Spring Boot, AWS, PostgreSQL, Docker
-            
-            Job Description:
-            """ + description + """
-            <|eot_id|><|start_header_id|>assistant<|end_header_id|>
-            """;
+        String prompt = """
+                You are an expert technical recruiter.
+                Extract ONLY the technical skills from this job description.
+                Return ONLY a comma-separated list of skills.
+                No explanation, no numbering, no bullets — just the skills.
+                
+                Example output: Java, Spring Boot, AWS, PostgreSQL, Docker
+                
+                Job Description:
+                """ + description;
 
-    try {
-        String requestBody = objectMapper.writeValueAsString(Map.of(
-                "prompt", prompt,
-                "max_gen_len", 200,
-                "temperature", 0.1  // low temperature = more predictable output
-        ));
+        try {
+            String requestBody = objectMapper.writeValueAsString(Map.of(
+                    "prompt", prompt,
+                    "max_gen_len", 500,
+                    "temperature", 0.1
+            ));
 
-        InvokeModelResponse response = bedrockClient.invokeModel(
-                InvokeModelRequest.builder()
-                        .modelId("meta.llama3-8b-instruct-v1:0")
-                        .body(SdkBytes.fromUtf8String(requestBody))
-                        .contentType("application/json")
-                        .accept("application/json")
-                        .build()
-        );
+            InvokeModelResponse response = bedrockClient.invokeModel(
+                    InvokeModelRequest.builder()
+                            .modelId("meta.llama3-8b-instruct-v1:0")
+                            .body(SdkBytes.fromUtf8String(requestBody))
+                            .contentType("application/json")
+                            .accept("application/json")
+                            .build()
+            );
 
-        Map<?, ?> responseMap = objectMapper.readValue(
-                response.body().asUtf8String(), Map.class);
+            Map<?, ?> responseMap = objectMapper.readValue(
+                    response.body().asUtf8String(), Map.class);
+            String skills = responseMap.get("generation").toString().trim();
 
-        // Llama returns "generation" field not "content"
-        String skills = responseMap.get("generation").toString().trim();
+            log.info("Bedrock Llama 3 response received",
+                    kv("modelId", "meta.llama3-8b-instruct-v1:0"),
+                    kv("skills", skills));
 
-        log.info("Llama extracted skills: {}", skills);
-        return skills;
+            return skills;
 
-    } catch (Exception e) {
-        log.error("Failed to extract skills: {}", e.getMessage());
-        return "";
+        } catch (Exception e) {
+            log.error("Failed to extract skills from description",
+                    kv("errorMessage", e.getMessage()));
+            return "";
+        }
     }
-}
 
     private JobResponseDTO toResponseDTO(Job job) {
         return JobResponseDTO.builder()

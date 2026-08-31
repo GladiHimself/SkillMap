@@ -3,13 +3,19 @@ import boto3
 import logging
 import urllib.parse
 import os
+import uuid
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-def log(level, message, **kwargs):
-    """Structured logger — always logs as JSON"""
-    log_entry = {"level": level, "message": message, **kwargs}
+def log(level, message, correlation_id=None, **kwargs):
+    """Structured logger — always logs as JSON, includes correlation ID"""
+    log_entry = {
+        "level": level,
+        "message": message,
+        "correlationId": correlation_id or "unknown",
+        **kwargs
+    }
     if level == "ERROR":
         logger.error(json.dumps(log_entry))
     else:
@@ -54,40 +60,39 @@ def lambda_handler(event, context):
     log("INFO", "Lambda triggered", record_count=len(event["Records"]))
 
     for record in event["Records"]:
+        # One correlation ID per resume — traces this specific
+        # resume's journey through Lambda, RDS, and SNS
+        correlation_id = f"resume-{uuid.uuid4().hex[:8]}"
+
         sqs_body = json.loads(record["body"])
 
-        # Handle different S3 notification formats
         if "Records" in sqs_body:
             s3_event = sqs_body["Records"][0]["s3"]
         elif "s3" in sqs_body:
             s3_event = sqs_body["s3"]
         else:
-            log("INFO", "Unexpected message format", body=str(sqs_body)[:500])
+            log("INFO", "Unexpected message format",
+                correlation_id=correlation_id, body=str(sqs_body)[:500])
             continue
 
         bucket = s3_event["bucket"]["name"]
         key    = urllib.parse.unquote_plus(s3_event["object"]["key"])
 
-        log("INFO", "Processing resume", bucket=bucket, key=key)
+        log("INFO", "Processing resume", correlation_id=correlation_id,
+            bucket=bucket, key=key)
 
         try:
-            # Step 1: Read resume from S3
-            resume_text = read_resume_from_s3(bucket, key)
+            resume_text = read_resume_from_s3(bucket, key, correlation_id)
+            extracted = extract_skills_with_bedrock(resume_text, correlation_id)
+            save_to_rds(key, extracted, correlation_id)
+            publish_notification(key, extracted, correlation_id)
 
-            # Step 2: Extract skills via Bedrock AI
-            extracted = extract_skills_with_bedrock(resume_text)
-
-            # Step 3: Save results to RDS
-            save_to_rds(key, extracted)
-
-            # Step 4: Notify via SNS
-            publish_notification(key, extracted)
-
-            log("INFO", "Resume processed successfully", key=key)
+            log("INFO", "Resume processed successfully",
+                correlation_id=correlation_id, key=key)
 
         except Exception as e:
             log("ERROR", "Failed to process resume",
-                key=key, error=str(e))
+                correlation_id=correlation_id, key=key, error=str(e))
             raise
 
 def read_resume_from_s3(bucket: str, key: str) -> str:

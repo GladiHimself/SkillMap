@@ -8,6 +8,8 @@ import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.sns.SnsClient;
 import software.amazon.awssdk.services.sns.model.PublishRequest;
 
+import static net.logstash.logback.argument.StructuredArguments.kv;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -15,21 +17,17 @@ public class NotificationService {
 
     private final SnsClient snsClient;
 
-    // Reads SNS_TOPIC_ARN from properties
-    // Empty string if not configured — skips notification gracefully
     @Value("${aws.sns.topic.arn:}")
     private String snsTopicArn;
 
     public void sendMatchNotification(MatchResultDTO result) {
 
-        // Skip if SNS not configured — safe for local development
         if (snsTopicArn == null || snsTopicArn.isBlank()) {
-            log.info("SNS topic ARN not configured — skipping notification");
-            log.info("Match result: {} scored {}% for {} at {}",
-                    result.getCandidateName(),
-                    result.getMatchScore(),
-                    result.getJobTitle(),
-                    result.getCompany());
+            log.info("SNS topic ARN not configured — skipping notification",
+                    kv("candidate", result.getCandidateName()),
+                    kv("matchScore", result.getMatchScore()),
+                    kv("jobTitle", result.getJobTitle()),
+                    kv("company", result.getCompany()));
             return;
         }
 
@@ -49,27 +47,29 @@ public class NotificationService {
                     .message(message)
                     .build());
 
-            log.info("Match notification sent successfully for {}",
-                    result.getCandidateName());
+            log.info("Match notification sent successfully",
+                    kv("candidate", result.getCandidateName()),
+                    kv("matchScore", result.getMatchScore()),
+                    kv("jobTitle", result.getJobTitle()),
+                    kv("company", result.getCompany()),
+                    kv("snsTopicArn", snsTopicArn));
 
         } catch (Exception e) {
-            // Never fail the main flow because of notification failure
-            log.error("Failed to send SNS notification: {}", e.getMessage());
+            log.error("Failed to send SNS notification",
+                    kv("candidate", result.getCandidateName()),
+                    kv("errorMessage", e.getMessage()));
         }
     }
 
     private String buildMatchMessage(MatchResultDTO result) {
-        // Build matched skills string
         String matchedSkills = result.getMatchedSkills().isEmpty()
                 ? "None"
                 : String.join(", ", result.getMatchedSkills());
 
-        // Build missing skills string
         String missingSkills = result.getMissingSkills().isEmpty()
                 ? "None — perfect match!"
                 : String.join(", ", result.getMissingSkills());
 
-        // Format the email body
         return String.format("""
                 Hi %s,
                 

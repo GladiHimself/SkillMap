@@ -8,6 +8,7 @@ import com.skillmap.repository.ResumeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import static net.logstash.logback.argument.StructuredArguments.kv;
 
 import java.util.Arrays;
 import java.util.List;
@@ -60,8 +61,11 @@ public class MatchService {
         resume.setMatchScore(score);
         resumeRepository.save(resume);
 
-        log.info("Match calculated: {} scored {}% for {} at {}",
-                resume.getCandidateName(), score, job.getTitle(), job.getCompany());
+        log.info("Match calculated",
+        kv("candidate", resume.getCandidateName()),
+        kv("matchScore", score),
+        kv("jobTitle", job.getTitle()),
+        kv("company", job.getCompany()));
 
         return MatchResultDTO.builder()
                 .resumeId(resume.getId())
