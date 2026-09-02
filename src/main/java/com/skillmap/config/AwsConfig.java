@@ -5,6 +5,7 @@ import org.springframework.context.annotation.Configuration;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.sns.SnsClient;
 
 @Configuration
@@ -27,4 +28,12 @@ public class AwsConfig {
                 .credentialsProvider(DefaultCredentialsProvider.create())
                 .build();
     }
+
+    @Bean
+    public S3Presigner s3Presigner() {
+        return S3Presigner.builder()
+                .region(Region.AP_SOUTH_1)
+                .build();
+    }
+
 }

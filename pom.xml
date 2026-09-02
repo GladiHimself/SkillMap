@@ -30,6 +30,19 @@
 		<java.version>21</java.version>
 	</properties>
 
+	<!-- BOM manages all AWS SDK versions consistently -->
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>bom</artifactId>
+			<version>2.28.11</version>
+			<type>pom</type>
+			<scope>import</scope>
+		</dependency>
+		</dependencies>
+	</dependencyManagement>
+
 	<dependencies>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -105,20 +118,13 @@
     		<artifactId>logstash-logback-encoder</artifactId>
     		<version>7.4</version>
 		</dependency>
-	</dependencies>
 
-	<!-- BOM manages all AWS SDK versions consistently -->
-	<dependencyManagement>
-		<dependencies>
-			<dependency>
-				<groupId>software.amazon.awssdk</groupId>
-				<artifactId>bom</artifactId>
-				<version>2.25.11</version>
-				<type>pom</type>
-				<scope>import</scope>
-			</dependency>
-		</dependencies>
-	</dependencyManagement>
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>s3</artifactId>
+		</dependency>
+		
+	</dependencies>
 
 	<build>
 		<plugins>
