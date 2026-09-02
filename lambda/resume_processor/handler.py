@@ -60,10 +60,6 @@ def lambda_handler(event, context):
     log("INFO", "Lambda triggered", record_count=len(event["Records"]))
 
     for record in event["Records"]:
-        # One correlation ID per resume — traces this specific
-        # resume's journey through Lambda, RDS, and SNS
-        correlation_id = f"resume-{uuid.uuid4().hex[:8]}"
-
         sqs_body = json.loads(record["body"])
 
         if "Records" in sqs_body:
@@ -71,12 +67,16 @@ def lambda_handler(event, context):
         elif "s3" in sqs_body:
             s3_event = sqs_body["s3"]
         else:
-            log("INFO", "Unexpected message format",
-                correlation_id=correlation_id, body=str(sqs_body)[:500])
+            log("INFO", "Unexpected message format", body=str(sqs_body)[:500])
             continue
 
         bucket = s3_event["bucket"]["name"]
         key    = urllib.parse.unquote_plus(s3_event["object"]["key"])
+
+        # Read the correlation ID that Spring Boot attached when uploading
+        # Falls back to a new one if the object has no metadata
+        # (e.g. uploaded manually via CLI, like our test resumes)
+        correlation_id = get_correlation_id_from_s3(bucket, key)
 
         log("INFO", "Processing resume", correlation_id=correlation_id,
             bucket=bucket, key=key)
@@ -95,9 +95,22 @@ def lambda_handler(event, context):
                 correlation_id=correlation_id, key=key, error=str(e))
             raise
 
-def read_resume_from_s3(bucket: str, key: str) -> str:
+def get_correlation_id_from_s3(bucket: str, key: str) -> str:
+    """Reads correlation-id from S3 object metadata, set by Spring Boot at upload"""
+    try:
+        response = s3_client.head_object(Bucket=bucket, Key=key)
+        correlation_id = response.get("Metadata", {}).get("correlation-id")
+        if correlation_id:
+            return correlation_id
+    except Exception as e:
+        log("ERROR", "Failed to read S3 metadata", error=str(e))
+
+    # No metadata found — generate one so Lambda's own logs still trace together
+    return f"resume-{uuid.uuid4().hex[:8]}"
+
+def read_resume_from_s3(bucket: str, key: str, correlation_id: str) -> str:
     """Downloads resume from S3 and returns text content"""
-    log("INFO", "Reading from S3", bucket=bucket, key=key)
+    log("INFO", "Reading from S3", correlation_id=correlation_id, bucket=bucket, key=key)
     response = s3_client.get_object(Bucket=bucket, Key=key)
     content  = response["Body"].read()
 
@@ -113,9 +126,9 @@ def read_resume_from_s3(bucket: str, key: str) -> str:
         Education: BSc Computer Science, University College Dublin, 2021
         """
 
-def extract_skills_with_bedrock(resume_text: str) -> dict:
+def extract_skills_with_bedrock(resume_text: str, correlation_id: str) -> dict:
     """Sends resume to Llama 3, returns structured JSON"""
-    log("INFO", "Calling Bedrock Llama 3 for skill extraction")
+    log("INFO", "Calling Bedrock Llama 3 for skill extraction", correlation_id=correlation_id)
 
     prompt = f"""[INST] You must respond with ONLY a raw JSON object. No introduction, no explanation, no summary text, no markdown formatting. Your entire response must start with {{ and end with }}.
 
@@ -141,14 +154,13 @@ Respond with ONLY the JSON object now: [/INST]"""
     response_body = json.loads(response["body"].read())
     raw_text = response_body["generation"].strip()
 
-    log("INFO", "Bedrock response received", preview=raw_text[:200])
+    log("INFO", "Bedrock response received", correlation_id=correlation_id, preview=raw_text[:200])
 
     start = raw_text.find("{")
     end = raw_text.rfind("}") + 1
 
     if start == -1 or end == 0:
-        # Llama didn't return JSON at all — fall back to a safe default
-        log("ERROR", "No JSON found in Llama response, using fallback")
+        log("ERROR", "No JSON found in Llama response, using fallback", correlation_id=correlation_id)
         return {
             "skills": [],
             "years_experience": 0,
@@ -159,9 +171,9 @@ Respond with ONLY the JSON object now: [/INST]"""
     json_text = raw_text[start:end]
     return json.loads(json_text)
 
-def save_to_rds(s3_key: str, extracted: dict):
+def save_to_rds(s3_key: str, extracted: dict, correlation_id: str):
     """Creates table if needed, then upserts resume record"""
-    log("INFO", "Saving extracted data to RDS", s3_key=s3_key)
+    log("INFO", "Saving extracted data to RDS", correlation_id=correlation_id, s3_key=s3_key)
 
     skills_str = ", ".join(extracted.get("skills", []))
     conn   = None
@@ -171,9 +183,6 @@ def save_to_rds(s3_key: str, extracted: dict):
         conn   = get_db_connection()
         cursor = conn.cursor()
 
-        # Create table if it doesn't exist
-        # Column name is s3key (no underscore) to match Hibernate's
-        # naming from the Java field s3Key in the Resume entity
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS resumes (
                 id               BIGSERIAL PRIMARY KEY,
@@ -186,9 +195,8 @@ def save_to_rds(s3_key: str, extracted: dict):
             )
         """)
         conn.commit()
-        log("INFO", "Table check complete")
+        log("INFO", "Table check complete", correlation_id=correlation_id)
 
-        # Try to update existing record first
         cursor.execute("""
             UPDATE resumes
             SET extracted_skills = %s,
@@ -199,7 +207,8 @@ def save_to_rds(s3_key: str, extracted: dict):
         rows_updated = cursor.rowcount
 
         if rows_updated == 0:
-            log("INFO", "No existing record — inserting new one", s3_key=s3_key)
+            log("INFO", "No existing record — inserting new one",
+                correlation_id=correlation_id, s3_key=s3_key)
             cursor.execute("""
                 INSERT INTO resumes (candidate_name, email, s3key, extracted_skills, status)
                 VALUES ('Pranav Praveen', 'pranav@example.com', %s, %s, 'PROCESSED')
@@ -207,6 +216,7 @@ def save_to_rds(s3_key: str, extracted: dict):
 
         conn.commit()
         log("INFO", "RDS updated successfully",
+            correlation_id=correlation_id,
             s3_key=s3_key,
             rows_updated=rows_updated,
             skills=skills_str
@@ -215,7 +225,7 @@ def save_to_rds(s3_key: str, extracted: dict):
     except Exception as e:
         if conn:
             conn.rollback()
-        log("ERROR", "Failed to update RDS", error=str(e))
+        log("ERROR", "Failed to update RDS", correlation_id=correlation_id, error=str(e))
         raise
 
     finally:
@@ -224,11 +234,11 @@ def save_to_rds(s3_key: str, extracted: dict):
         if conn:
             conn.close()
 
-def publish_notification(key: str, extracted: dict):
+def publish_notification(key: str, extracted: dict, correlation_id: str):
     """Publishes match result to SNS"""
     sns_topic_arn = os.environ.get("SNS_TOPIC_ARN", "")
     if not sns_topic_arn:
-        log("INFO", "SNS_TOPIC_ARN not set — skipping")
+        log("INFO", "SNS_TOPIC_ARN not set — skipping", correlation_id=correlation_id)
         return
 
     skills_list = ", ".join(extracted.get("skills", []))
@@ -248,4 +258,4 @@ Summary: {extracted.get("summary")}
         Subject  = "SkillMap — Your Resume Has Been Processed",
         Message  = message
     )
-    log("INFO", "SNS notification published")
+    log("INFO", "SNS notification published", correlation_id=correlation_id)
