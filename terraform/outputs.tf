@@ -145,3 +145,8 @@ output "cloudfront_distribution_id" {
   description = "CloudFront distribution ID — needed for cache invalidation"
   value       = aws_cloudfront_distribution.frontend.id
 }
+
+output "cloudwatch_dashboard_url" {
+  description = "Direct link to the SkillMap CloudWatch dashboard"
+  value       = "https://${var.aws_region}.console.aws.amazon.com/cloudwatch/home?region=${var.aws_region}#dashboards:name=${var.project_name}-overview"
+}

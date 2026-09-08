@@ -216,3 +216,19 @@ resource "aws_vpc_endpoint" "logs" {
     Project = var.project_name
   }
 }
+
+# SNS — Interface endpoint
+# Lambda calls this to publish match/processing notifications
+resource "aws_vpc_endpoint" "sns" {
+  vpc_id              = aws_vpc.main.id
+  service_name        = "com.amazonaws.ap-south-1.sns"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.private_1.id, aws_subnet.private_2.id]
+  security_group_ids  = [aws_security_group.app.id]
+  private_dns_enabled = true
+
+  tags = {
+    Name    = "${var.project_name}-sns-endpoint"
+    Project = var.project_name
+  }
+}
