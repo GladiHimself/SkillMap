@@ -27,6 +27,9 @@ FROM amazoncorretto:21-al2023-jdk
 # Working directory
 WORKDIR /app
 
+# Install wget — required by the container health check below
+RUN dnf install -y wget && dnf clean all
+
 # Copy ONLY the jar from the builder stage
 # Everything else from Stage 1 is discarded
 COPY --from=builder /app/target/*.jar app.jar
@@ -35,7 +38,7 @@ COPY --from=builder /app/target/*.jar app.jar
 EXPOSE 8080
 
 # Health check — ECS uses this to know if container is healthy
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
   CMD wget -q -O- http://localhost:8080/actuator/health || exit 1
 
 # Command to run when container starts

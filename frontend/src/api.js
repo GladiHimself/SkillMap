@@ -53,3 +53,26 @@ export const matchResumeToJob = async (resumeId, jobId) => {
   if (!res.ok) throw new Error('Match failed');
   return res.json();
 };
+
+// Get a pre-signed S3 upload URL from the backend
+export const getUploadUrl = async (fileName) => {
+  const res = await fetch(`${BASE_URL}/resumes/upload-url?fileName=${encodeURIComponent(fileName)}`);
+  if (!res.ok) throw new Error('Failed to get upload URL');
+
+  // Correlation ID comes back in the response header
+  const correlationId = res.headers.get('X-Correlation-Id');
+  const data = await res.json();
+  return { ...data, correlationId };
+};
+
+// Upload the file directly from browser to S3 using the pre-signed URL
+// The correlation ID header must match what the URL was signed with
+export const uploadFileToS3 = async (uploadUrl, file, correlationId) => {
+  const res = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: { 'x-amz-meta-correlation-id': correlationId },
+    body: file
+  });
+  if (!res.ok) throw new Error('S3 upload failed');
+  return true;
+};

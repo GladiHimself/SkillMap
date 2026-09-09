@@ -26,6 +26,21 @@ resource "aws_s3_bucket" "resumes" {
   }
 }
 
+# ── S3 CORS Configuration ──────────────────────────────────────
+# Allows the browser to upload files directly to S3 via pre-signed URLs
+# Without this, browsers block the cross-origin PUT request
+resource "aws_s3_bucket_cors_configuration" "resumes" {
+  bucket = aws_s3_bucket.resumes.id
+
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["PUT", "POST", "GET", "HEAD"]
+    allowed_origins = ["*"]  # tighten to your CloudFront domain in production
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3000
+  }
+}
+
 # Block all public access — resumes are private documents
 resource "aws_s3_bucket_public_access_block" "resumes" {
   bucket = aws_s3_bucket.resumes.id

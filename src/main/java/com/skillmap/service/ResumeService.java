@@ -37,6 +37,7 @@ public class ResumeService {
         Resume resume = Resume.builder()
                 .candidateName(request.getCandidateName())
                 .email(request.getEmail())
+                .s3Key(request.getS3Key()) 
                 .status(ResumeStatus.UPLOADED)
                 .build();
 
