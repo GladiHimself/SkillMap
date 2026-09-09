@@ -14,4 +14,8 @@ public class ResumeRequestDTO {
     @Email(message = "Please provide a valid email address")
     private String email;
 
+    // S3 object key — set by the frontend after getting a pre-signed URL
+    // Lambda uses this to find and update the correct record
+    private String s3Key;
+
 }

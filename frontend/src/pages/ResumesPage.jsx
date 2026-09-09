@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getAllResumes, createResume } from '../api';
+import { getAllResumes, createResume, getUploadUrl, uploadFileToS3 } from '../api';
 
 // Badge colour based on resume status
 const statusBadge = {
@@ -14,6 +14,8 @@ export default function ResumesPage() {
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState({});
   const [success, setSuccess] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
 
   const [form, setForm] = useState({ candidateName: '', email: '' });
 
@@ -35,13 +37,38 @@ export default function ResumesPage() {
   const handleSubmit = async () => {
     setErrors({});
     setSuccess('');
+
+    if (!selectedFile) {
+      setErrors({ file: 'Please choose a PDF file to upload' });
+      return;
+    }
+
+    setUploading(true);
+
     try {
-      const newResume = await createResume(form);
+      // Step 1 — get a pre-signed URL from the backend
+      // This also generates the correlation ID used for tracing
+      const { uploadUrl, s3Key, correlationId } = await getUploadUrl(selectedFile.name);
+
+      // Step 2 — register the candidate record FIRST
+      // The row must exist before Lambda fires, otherwise Lambda
+      // can't find it and inserts a duplicate instead of updating
+      const newResume = await createResume({ ...form, s3Key });
+
+      // Step 3 — upload the file, which triggers the Lambda pipeline
+      // The file never passes through our Spring Boot server
+      await uploadFileToS3(uploadUrl, selectedFile, correlationId);
+
       setResumes([...resumes, newResume]);
       setForm({ candidateName: '', email: '' });
-      setSuccess('Resume registered! Upload feature coming soon.');
+      setSelectedFile(null);
+      setSuccess('Resume uploaded! AI is processing it — refresh in a few seconds.');
+
     } catch (err) {
-      setErrors(err);
+      console.error(err);
+      setErrors(typeof err === 'object' ? err : { file: 'Upload failed' });
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -49,15 +76,20 @@ export default function ResumesPage() {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
+  const handleFileChange = (e) => {
+    setSelectedFile(e.target.files[0]);
+    setErrors({});
+  };
+
   return (
     <div className="container">
       <h2 style={{ margin: '1.5rem 0 1rem' }}>Resumes</h2>
 
-      {/* Register Resume Form */}
+      {/* Upload Resume Form */}
       <div className="card">
-        <h3 style={{ marginBottom: '1rem' }}>Register a Resume</h3>
+        <h3 style={{ marginBottom: '0.5rem' }}>Upload a Resume</h3>
         <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '1rem' }}>
-          S3 file upload coming on Day 8. For now, register candidate details.
+          Upload a PDF — AI will extract skills automatically.
         </p>
 
         <div className="form-group">
@@ -82,12 +114,40 @@ export default function ResumesPage() {
           {errors.email && <div className="error">{errors.email}</div>}
         </div>
 
+        <div className="form-group">
+          <label>Resume (PDF)</label>
+          <input
+            type="file"
+            accept=".pdf"
+            onChange={handleFileChange}
+          />
+          {selectedFile && (
+            <small style={{ color: '#64748b' }}>
+              Selected: {selectedFile.name} ({Math.round(selectedFile.size / 1024)} KB)
+            </small>
+          )}
+          {errors.file && <div className="error">{errors.file}</div>}
+        </div>
+
         {success && <div className="success">{success}</div>}
 
-        <button className="btn btn-primary" onClick={handleSubmit}>
-          Register Resume
+        <button
+          className="btn btn-primary"
+          onClick={handleSubmit}
+          disabled={uploading}
+        >
+          {uploading ? 'Uploading...' : 'Upload Resume'}
         </button>
       </div>
+
+      {/* Refresh button — Lambda processes asynchronously */}
+      <button
+        className="btn"
+        onClick={fetchResumes}
+        style={{ marginBottom: '1rem', background: '#e2e8f0' }}
+      >
+        ↻ Refresh Status
+      </button>
 
       {/* Resumes List */}
       {loading ? (
@@ -102,12 +162,17 @@ export default function ResumesPage() {
                 <h3>{resume.candidateName}</h3>
                 <p style={{ color: '#64748b', fontSize: '0.9rem' }}>{resume.email}</p>
                 {resume.extractedSkills && (
-                  <p style={{ fontSize: '0.9rem', marginTop: '0.3rem' }}>
-                    Skills: {resume.extractedSkills}
-                  </p>
+                  <div style={{ marginTop: '0.5rem' }}>
+                    {resume.extractedSkills.split(',').map(skill => (
+                      <span key={skill} className="badge badge-blue"
+                        style={{ marginRight: '0.3rem', marginBottom: '0.3rem', display: 'inline-block' }}>
+                        {skill.trim()}
+                      </span>
+                    ))}
+                  </div>
                 )}
                 {resume.matchScore !== null && (
-                  <p style={{ fontSize: '0.9rem' }}>
+                  <p style={{ fontSize: '0.9rem', marginTop: '0.3rem' }}>
                     Match Score: <strong>{resume.matchScore}%</strong>
                   </p>
                 )}
